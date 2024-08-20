@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <array>
 #include <filesystem>
 #include <zlib.h>
 #ifdef _WIN32
@@ -15,6 +16,38 @@ struct FILE_ENTRY {
     int uncompressedSize;
     int compressedSize;
 };
+
+enum FileType {
+    File_Dat = 0,
+    File_Rel = 1,
+    File_GPU = 2,
+    File_Language_Dat = 3,
+    File_Language_Rel = 4,
+    File_Language_GPU = 5,
+    File_Max = 6
+};
+
+constexpr std::array<std::string_view, File_Max> FileTypeStrings = {
+    "File.Dat",
+    "File.Rel",
+    "File.GPU",
+    "File_Language.Dat",
+    "File_Language.Rel",
+    "File_Language.GPU"
+};
+
+constexpr std::string FileTypeToString(FileType fileType) {
+    return std::string(FileTypeStrings[fileType]);
+}
+
+constexpr FileType StringToFileType(std::string str) {
+    for (size_t i = 0; i < FileTypeStrings.size(); ++i) {
+        if (FileTypeStrings[i] == str) {
+            return static_cast<FileType>(i);
+        }
+    }
+    throw std::invalid_argument("Invalid FileType string");
+}
 
 FILE_ENTRY entries[6];
 
@@ -33,14 +66,7 @@ void unpackFiles(const std::string& inputFile, const std::string& outputDir) {
         return;
     }
 
-    // Read the file entries metadata
     inFile.read(reinterpret_cast<char*>(entries), sizeof(entries));
-
-    std::ofstream stzinfo(outputDir + "/file.stzinfo");
-    if (!stzinfo) {
-        std::cerr << "Error: Could not create .stzinfo file" << std::endl;
-        return;
-    }
 
     for (int i = 0; i < 6; ++i) {
         if (entries[i].compressedSize > 0) {
@@ -57,41 +83,19 @@ void unpackFiles(const std::string& inputFile, const std::string& outputDir) {
                 continue;
             }
 
-            std::ofstream outFile(outputDir + "/file" + std::to_string(i) + ".bin", std::ios::binary);
+            std::ofstream outFile(outputDir + "/" + std::string(FileTypeStrings[i]), std::ios::binary);
             if (outFile) {
                 outFile.write(uncompressedData.data(), entries[i].uncompressedSize);
                 outFile.close();
             }
-
-            stzinfo << "file" << i << ".bin " << entries[i].uncompressedSize << " " << entries[i].compressedSize << std::endl;
-        } else {
-            stzinfo << "file" << i << ".bin 0 0" << std::endl;
         }
     }
 
-    stzinfo.close();
     inFile.close();
     std::cout << "Unpacking complete." << std::endl;
 }
 
-void repackFiles(const std::string& stzInfoPath, const std::string& outputFile) {
-    std::ifstream stzinfo(stzInfoPath);
-    if (!stzinfo) {
-        std::cerr << "Error: Could not open .stzinfo file" << std::endl;
-        return;
-    }
-
-    std::vector<std::string> fileNames(6);
-    std::vector<int> uncompressedSizes(6), compressedSizes(6);
-    std::filesystem::path stzDir = std::filesystem::path(stzInfoPath).parent_path();
-
-    for (int i = 0; i < 6; ++i) {
-        stzinfo >> fileNames[i] >> uncompressedSizes[i] >> compressedSizes[i];
-    }
-
-
-
-    stzinfo.close();
+void repackFiles(const std::filesystem::path& inputDir, const std::string& outputFile) {
 
     std::ofstream outFile(outputFile, std::ios::binary);
     if (!outFile) {
@@ -103,30 +107,37 @@ void repackFiles(const std::string& stzInfoPath, const std::string& outputFile) 
     outFile.seekp(currentOffset, std::ios::beg);
 
     for (int i = 0; i < 6; ++i) {
-        if (uncompressedSizes[i] > 0) {
-            std::filesystem::path filePath = stzDir / fileNames[i];
-            std::ifstream inFile(filePath, std::ios::binary);
-            if (!inFile) {
-                std::cerr << "Error: Could not open file " << fileNames[i] << std::endl;
-                return;
+        std::filesystem::path filePath = inputDir / FileTypeStrings[i];
+        std::ifstream inFile(filePath, std::ios::binary);
+
+        if (inFile) {
+            
+            inFile.seekg(0, std::ios::end);
+            std::streamsize fileSize = inFile.tellg();
+            inFile.seekg(0, std::ios::beg);
+
+            std::vector<char> uncompressedData(fileSize);
+
+            if (!inFile.read(uncompressedData.data(), fileSize)) {
+                std::cerr << "Error: Could not read the file into the vector." << std::endl;
+                std::cout << fileSize << std::endl;
             }
 
-            std::vector<char> uncompressedData(uncompressedSizes[i]);
-            inFile.read(uncompressedData.data(), uncompressedSizes[i]);
-            inFile.close();
+            uLongf destLen = compressBound(fileSize);
 
-            uLongf destLen = compressBound(uncompressedSizes[i]);
             std::vector<char> compressedData(destLen);
 
-            int result = compress2((Bytef*)compressedData.data(), &destLen, (const Bytef*)uncompressedData.data(), uncompressedSizes[i], Z_BEST_COMPRESSION);
+            int result = compress2((Bytef*)compressedData.data(), &destLen, (const Bytef*)uncompressedData.data(), fileSize, Z_BEST_COMPRESSION);
 
             if (result != Z_OK) {
-                std::cerr << "Error: Failed to compress file " << fileNames[i] << std::endl;
+                std::cerr << "Error: Failed to compress file " << FileTypeStrings[i] << ". Compression result: " << result << std::endl;
+                std::cout << fileSize << std::endl;
+                std::cout << destLen << std::endl;
                 continue;
             }
 
             entries[i].offset = currentOffset;
-            entries[i].uncompressedSize = uncompressedSizes[i];
+            entries[i].uncompressedSize = fileSize;
             entries[i].compressedSize = destLen;
 
             outFile.seekp(entries[i].offset, std::ios::beg);
@@ -173,7 +184,7 @@ start:
         std::string inputFile, outputDir;
         std::cout << "Enter the input file path: ";
         std::cin >> inputFile;
-        std::cout << "Enter the output directory: ";
+        std::cout << "Enter the output directory path: ";
         std::cin >> outputDir;
 
         removeQuotes(inputFile);
@@ -182,16 +193,16 @@ start:
         std::filesystem::create_directories(outputDir);
         unpackFiles(inputFile, outputDir);
     } else if (choice == "r") {
-        std::string stzInfoPath, outputFile;
-        std::cout << "Enter the .stzinfo file path: ";
-        std::cin >> stzInfoPath;
+        std::string inputDir, outputFile;
+        std::cout << "Enter the input directory path: ";
+        std::cin >> inputDir;
         std::cout << "Enter the output file path: ";
         std::cin >> outputFile;
 
-        removeQuotes(stzInfoPath);
+        removeQuotes(inputDir);
         removeQuotes(outputFile);
 
-        repackFiles(stzInfoPath, outputFile);
+        repackFiles(inputDir, outputFile);
     } else {
         std::cerr << "Invalid choice. Please enter 'u' to unpack or 'r' to repack." << std::endl;
     }
