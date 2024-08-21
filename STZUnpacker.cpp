@@ -46,8 +46,8 @@ constexpr std::array<char, 256> concat(const char* a, const char* b) {
     return result;
 }
 
-constexpr char frontsymbol[] = "»»";
-constexpr char backsymbol[] = "««";
+constexpr char frontsymbol[] = "$$";
+constexpr char backsymbol[] = "$$";
 
 constexpr auto dat_type = concat(backsymbol, ".Dat");
 constexpr auto rel_type = concat(backsymbol, ".Rel");
@@ -131,8 +131,6 @@ void unpackFiles(const std::string& inputFile, const std::string& outputDir) {
             }
 
             std::string outPath = outputDir + std::string(frontsymbol) + std::filesystem::path(inputFile).filename().string() + std::string(FileTypeStrings[i]);
-            std::cout << frontsymbol << std::endl;
-            std::cout << outPath << std::endl;
             std::ofstream outFile(outPath, std::ios::binary);
             if (outFile) {
                 outFile.write(uncompressedData.data(), entries[i].uncompressedSize);
