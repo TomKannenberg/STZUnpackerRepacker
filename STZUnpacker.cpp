@@ -1,9 +1,14 @@
-#include <iostream>
+﻿#include <iostream>
 #include <fstream>
 #include <string>
 #include <vector>
 #include <array>
 #include <filesystem>
+#include <locale>
+#include <locale.h>
+#include <stdlib.h>
+#include <io.h>
+#include <fcntl.h>
 #include <zlib.h>
 #ifdef _WIN32
 #include <windows.h>
@@ -27,27 +32,38 @@ enum FileType {
     File_Max = 6
 };
 
-constexpr std::array<std::string_view, File_Max> FileTypeStrings = {
-    "File.Dat",
-    "File.Rel",
-    "File.GPU",
-    "File_Language.Dat",
-    "File_Language.Rel",
-    "File_Language.GPU"
-};
-
-constexpr std::string FileTypeToString(FileType fileType) {
-    return std::string(FileTypeStrings[fileType]);
-}
-
-constexpr FileType StringToFileType(std::string str) {
-    for (size_t i = 0; i < FileTypeStrings.size(); ++i) {
-        if (FileTypeStrings[i] == str) {
-            return static_cast<FileType>(i);
-        }
+constexpr std::array<char, 256> concat(const char* a, const char* b) {
+    std::array<char, 256> result{};
+    std::size_t i = 0;
+    for (; a[i] != '\0'; ++i) {
+        result[i] = a[i];
     }
-    throw std::invalid_argument("Invalid FileType string");
+    std::size_t j = 0;
+    for (; b[j] != '\0'; ++j) {
+        result[i + j] = b[j];
+    }
+    result[i + j] = '\0';
+    return result;
 }
+
+constexpr char frontsymbol[] = "»»";
+constexpr char backsymbol[] = "««";
+
+constexpr auto dat_type = concat(backsymbol, ".Dat");
+constexpr auto rel_type = concat(backsymbol, ".Rel");
+constexpr auto gpu_type = concat(backsymbol, ".GPU");
+constexpr auto language_dat = concat(backsymbol, "Language.Dat");
+constexpr auto language_rel = concat(backsymbol, "Language.Rel");
+constexpr auto language_gpu = concat(backsymbol, "Language.GPU");
+
+constexpr std::array<std::string_view, File_Max> FileTypeStrings = {
+    std::string_view(dat_type.data()),
+    std::string_view(rel_type.data()),
+    std::string_view(gpu_type.data()),
+    std::string_view(language_dat.data()),
+    std::string_view(language_rel.data()),
+    std::string_view(language_gpu.data())
+};
 
 FILE_ENTRY entries[6];
 
@@ -57,6 +73,43 @@ void clearScreen() {
 #else
     system("clear");
 #endif
+}
+
+int someDumbFunction(int input) {
+    std::cout << "Idc" << input << std::endl;
+
+    return 0;
+}
+
+std::wstring getStzName(const std::filesystem::path& directoryPath) {
+    try {
+        if (!std::filesystem::is_directory(directoryPath)) {
+            std::cerr << ("Provided path is not a directory.");
+        }
+
+        for (const auto& entry : std::filesystem::directory_iterator(directoryPath)) {
+            std::string filename = entry.path().filename().string();
+
+            if (filename.empty()) {
+                continue;
+            }
+
+            size_t firstSymbolPos = filename.find(frontsymbol);
+            if (firstSymbolPos == std::string::npos) {
+                continue;
+            }
+
+            size_t secondSymbolPos = filename.find(backsymbol, firstSymbolPos + 1);
+            if (secondSymbolPos == std::string::npos) {
+                std::cerr << "Warning: Filename '" << filename << "' does not contain a second occurrence of the symbol." << std::endl;
+                continue;
+            }
+
+            std::string extractedString = filename.substr(firstSymbolPos + 1, secondSymbolPos - firstSymbolPos - 1);
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Filesystem error: " << e.what() << std::endl;
+    }
 }
 
 void unpackFiles(const std::string& inputFile, const std::string& outputDir) {
@@ -83,23 +136,29 @@ void unpackFiles(const std::string& inputFile, const std::string& outputDir) {
                 continue;
             }
 
-            std::ofstream outFile(outputDir + "/" + std::string(FileTypeStrings[i]), std::ios::binary);
+            std::string outPath = outputDir + std::string(frontsymbol) + std::filesystem::path(inputFile).filename().string() + std::string(FileTypeStrings[i]);
+            std::cout << frontsymbol << std::endl;
+            std::cout << outPath << std::endl;
+            std::ofstream outFile(outPath, std::ios::binary);
             if (outFile) {
                 outFile.write(uncompressedData.data(), entries[i].uncompressedSize);
                 outFile.close();
             }
         }
     }
-
     inFile.close();
     std::cout << "Unpacking complete." << std::endl;
 }
 
-void repackFiles(const std::filesystem::path& inputDir, const std::string& outputFile) {
+void repackFiles(const std::filesystem::path& inputDir) {
+    
+    std::wstring outputFile = getStzName(inputDir);
 
+    std::wcout << outputFile << std::endl;
+    
     std::ofstream outFile(outputFile, std::ios::binary);
     if (!outFile) {
-        std::cerr << "Error: Could not create output file " << outputFile << std::endl;
+        std::wcerr << "Error: Could not create output file " << outputFile << std::endl;
         return;
     }
 
@@ -184,11 +243,10 @@ start:
         std::string inputFile, outputDir;
         std::cout << "Enter the input file path: ";
         std::cin >> inputFile;
-        std::cout << "Enter the output directory path: ";
-        std::cin >> outputDir;
 
         removeQuotes(inputFile);
-        removeQuotes(outputDir);
+
+        outputDir = inputFile + "_unpacked\\";
 
         std::filesystem::create_directories(outputDir);
         unpackFiles(inputFile, outputDir);
@@ -196,13 +254,11 @@ start:
         std::string inputDir, outputFile;
         std::cout << "Enter the input directory path: ";
         std::cin >> inputDir;
-        std::cout << "Enter the output file path: ";
-        std::cin >> outputFile;
-
         removeQuotes(inputDir);
-        removeQuotes(outputFile);
 
-        repackFiles(inputDir, outputFile);
+        inputDir += "\\";
+
+        repackFiles(inputDir);
     } else {
         std::cerr << "Invalid choice. Please enter 'u' to unpack or 'r' to repack." << std::endl;
     }
