@@ -75,12 +75,6 @@ void clearScreen() {
 #endif
 }
 
-int someDumbFunction(int input) {
-    std::cout << "Idc" << input << std::endl;
-
-    return 0;
-}
-
 std::wstring getStzName(const std::filesystem::path& directoryPath) {
     try {
         if (!std::filesystem::is_directory(directoryPath)) {
