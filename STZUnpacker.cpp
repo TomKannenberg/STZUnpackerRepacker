@@ -46,8 +46,8 @@ constexpr std::array<char, 256> concat(const char* a, const char* b) {
     return result;
 }
 
-constexpr char frontsymbol[] = "$$";
-constexpr char backsymbol[] = "$$";
+constexpr char frontsymbol[] = "$";
+constexpr char backsymbol[] = "$";
 
 constexpr auto dat_type = concat(backsymbol, ".Dat");
 constexpr auto rel_type = concat(backsymbol, ".Rel");
@@ -75,7 +75,7 @@ void clearScreen() {
 #endif
 }
 
-std::wstring getStzName(const std::filesystem::path& directoryPath) {
+std::string getStzName(const std::filesystem::path& directoryPath) {
     try {
         if (!std::filesystem::is_directory(directoryPath)) {
             std::cerr << ("Provided path is not a directory.");
@@ -100,6 +100,7 @@ std::wstring getStzName(const std::filesystem::path& directoryPath) {
             }
 
             std::string extractedString = filename.substr(firstSymbolPos + 1, secondSymbolPos - firstSymbolPos - 1);
+            return extractedString;
         }
     } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Filesystem error: " << e.what() << std::endl;
@@ -144,13 +145,11 @@ void unpackFiles(const std::string& inputFile, const std::string& outputDir) {
 
 void repackFiles(const std::filesystem::path& inputDir) {
     
-    std::wstring outputFile = getStzName(inputDir);
-
-    std::wcout << outputFile << std::endl;
+    std::filesystem::path outputFile = std::filesystem::path(inputDir) / getStzName(inputDir);
     
     std::ofstream outFile(outputFile, std::ios::binary);
     if (!outFile) {
-        std::wcerr << "Error: Could not create output file " << outputFile << std::endl;
+        std::cerr << "Error: Could not create output file " << outputFile << std::endl;
         return;
     }
 
@@ -158,7 +157,9 @@ void repackFiles(const std::filesystem::path& inputDir) {
     outFile.seekp(currentOffset, std::ios::beg);
 
     for (int i = 0; i < 6; ++i) {
-        std::filesystem::path filePath = inputDir / FileTypeStrings[i];
+        std::string inFileName = frontsymbol + outputFile.filename().string() + std::string(FileTypeStrings[i]);
+        std::filesystem::path filePath = inputDir / std::filesystem::path(inFileName);
+        std::cout << filePath.string() << std::endl;
         std::ifstream inFile(filePath, std::ios::binary);
 
         if (inFile) {
